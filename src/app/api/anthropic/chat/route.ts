@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     async start(controller) {
       try {
         for await (const chunk of response) {
-          if (chunk.type === 'content_block_delta' && chunk.delta?.text) {
+          if (chunk.type === 'content_block_delta' && 'text' in chunk.delta) {
             controller.enqueue(chunk.delta.text);
           }
         }
