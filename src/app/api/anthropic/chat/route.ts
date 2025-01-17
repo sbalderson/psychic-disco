@@ -1,7 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Message } from 'ai';
 
 export const runtime = "edge";
+
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
@@ -13,7 +17,7 @@ export async function POST(req: Request) {
     model: 'claude-3-sonnet-20240229',
     max_tokens: 1024,
     messages: messages.map((m: Message) => ({
-      role: m.role === 'user' ? 'user' : 'assistant',
+      role: m.role,
       content: m.content,
     })),
     stream: true,
