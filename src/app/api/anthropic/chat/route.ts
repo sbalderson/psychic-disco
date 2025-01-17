@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Message, StreamingTextResponse } from 'ai';
+import { Message } from 'ai';
 
 export const runtime = "edge";
 
@@ -22,12 +22,25 @@ export async function POST(req: Request) {
   // Convert the response to a ReadableStream
   const stream = new ReadableStream({
     async start(controller) {
-      for await (const chunk of response) {
-        controller.enqueue(chunk.content);
+      try {
+        for await (const chunk of response) {
+          if (chunk.type === 'content_block_delta' && chunk.delta?.text) {
+            controller.enqueue(chunk.delta.text);
+          }
+        }
+        controller.close();
+      } catch (error) {
+        controller.error(error);
       }
-      controller.close();
     },
   });
 
-  return new StreamingTextResponse(stream);
+  // Return the stream with the appropriate headers
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
 }
