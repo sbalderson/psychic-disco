@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",
+    "@deepgram/sdk": "^3.9.0",
     "@flatfile/api": "^1.12.0",
     "@google-cloud/vertexai": "^1.9.2",
     "@google-cloud/vision": "^4.3.2",
