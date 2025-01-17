@@ -19,9 +19,18 @@ interface ModifierItem {
   selected: boolean;
 }
 
+interface ImageResult {
+  filename: string;
+  success: boolean;
+  items?: MenuItem[];
+  rawText?: string;
+  error?: string;
+}
+
 interface MenuAnalysis {
-  items: MenuItem[];
-  rawText: string;
+  totalProcessed: number;
+  successfulProcessed: number;
+  results: ImageResult[];
 }
 
 interface ConsolidatedModifiers {
@@ -35,8 +44,8 @@ interface ProcessingStage {
 }
 
 export default function ModifiersExtractor() {
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string>('');
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [analysis, setAnalysis] = useState<MenuAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,24 +71,26 @@ export default function ModifiersExtractor() {
   ];
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedImage(file);
-      setImagePreview(URL.createObjectURL(file));
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      setSelectedImages(files);
+      setImagePreviews(files.map(file => URL.createObjectURL(file)));
       setError(null);
       setAnalysis(null);
     }
   };
 
-  const processImage = async () => {
-    if (!selectedImage) return;
+  const processImages = async () => {
+    if (selectedImages.length === 0) return;
 
     setIsProcessing(true);
     setError(null);
     setCurrentStage(0);
 
     const formData = new FormData();
-    formData.append('image', selectedImage);
+    selectedImages.forEach(image => {
+      formData.append('images', image);
+    });
 
     try {
       // Set up the 9-second animation sequence
@@ -98,12 +109,18 @@ export default function ModifiersExtractor() {
       clearInterval(stageInterval);
 
       if (!response.ok) {
-        throw new Error('Failed to process image');
+        throw new Error('Failed to process images');
       }
 
       const result = await response.json();
       setAnalysis(result);
-      setConsolidatedModifiers(consolidateModifiers(result.items));
+      
+      // Combine items from all successful results
+      const allItems = result.results
+        .filter((r: ImageResult) => r.success && r.items)
+        .flatMap((r: ImageResult) => r.items || []);
+        
+      setConsolidatedModifiers(consolidateModifiers(allItems));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -251,43 +268,51 @@ export default function ModifiersExtractor() {
                 type="file"
                 accept="image/*"
                 onChange={handleImageChange}
+                multiple
                 className="hidden"
-                aria-label="Upload menu image"
+                aria-label="Upload menu images"
               />
               <div className="flex items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 cursor-pointer hover:border-blue-500 dark:hover:border-blue-400 transition-colors group">
                 <div className="text-center">
                   <Upload className="mx-auto h-12 w-12 text-gray-400 group-hover:text-blue-500 transition-colors" />
-                  <p className="mt-2 text-base font-medium text-gray-900 dark:text-white">Click to upload a menu image</p>
+                  <p className="mt-2 text-base font-medium text-gray-900 dark:text-white">Click to upload menu images</p>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">PNG, JPG, WEBP up to 10MB</p>
                 </div>
               </div>
             </label>
-            {imagePreview && (
-              <div className="relative w-64 h-64 group">
-                <Image
-                  src={imagePreview}
-                  alt="Preview"
-                  fill
-                  className="object-cover rounded-xl"
-                />
-                <button
-                  onClick={() => {
-                    setSelectedImage(null);
-                    setImagePreview('');
-                  }}
-                  className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                  aria-label="Remove image"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+            {imagePreviews.length > 0 && (
+              <div className="flex flex-wrap gap-4">
+                {imagePreviews.map((preview, index) => (
+                  <div key={index} className="relative w-64 h-64 group">
+                    <Image
+                      src={preview}
+                      alt={`Preview ${index + 1}`}
+                      fill
+                      className="object-cover rounded-xl"
+                    />
+                    <button
+                      onClick={() => {
+                        const newImages = selectedImages.filter((_, i) => i !== index);
+                        const newPreviews = imagePreviews.filter((_, i) => i !== index);
+                        setSelectedImages(newImages);
+                        setImagePreviews(newPreviews);
+                        URL.revokeObjectURL(preview);
+                      }}
+                      className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label="Remove image"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
           
           <div className="mt-6 flex justify-end gap-4">
             <button
-              onClick={processImage}
-              disabled={!selectedImage || isProcessing}
+              onClick={processImages}
+              disabled={selectedImages.length === 0 || isProcessing}
               className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isProcessing ? (
@@ -313,7 +338,7 @@ export default function ModifiersExtractor() {
         )}
 
         {/* Results Section */}
-        {analysis && analysis.items.length > 0 && (
+        {analysis && analysis.results.some(r => r.success && r.items && r.items.length > 0) && (
           <div className="space-y-8">
             {/* Extracted Dish Names */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -321,21 +346,24 @@ export default function ModifiersExtractor() {
                 Extracted Dishes
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {analysis.items.map((item, index) => (
-                  <div 
-                    key={index}
-                    className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
-                  >
-                    <h3 className="font-semibold text-gray-900 dark:text-white">
-                      {item.name}
-                    </h3>
-                    {item.description && (
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        {item.description}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                {analysis.results
+                  .filter(r => r.success && r.items)
+                  .flatMap(r => r.items || [])
+                  .map((item, index) => (
+                    <div 
+                      key={index}
+                      className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                    >
+                      <h3 className="font-semibold text-gray-900 dark:text-white">
+                        {item.name}
+                      </h3>
+                      {item.description && (
+                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+                  ))}
               </div>
             </div>
 
