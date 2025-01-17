@@ -185,36 +185,68 @@ export async function POST(request: Request) {
   try {
     console.log('Received image upload request');
     const formData = await request.formData();
-    const file = formData.get('image') as File | null;
+    const files = formData.getAll('images') as File[];
 
-    if (!file) {
-      console.log('No image file provided in request');
+    if (!files.length) {
+      console.log('No image files provided in request');
       return NextResponse.json(
-        { error: 'No image file provided' },
+        { error: 'No image files provided' },
         { status: 400 }
       );
     }
 
-    console.log('Processing image:', file.name, 'Size:', file.size, 'bytes');
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    console.log(`Processing ${files.length} images`);
     
-    // Perform OCR on the image
-    const extractedText = await performOCR(buffer);
-    
-    // Parse the extracted text into menu items
-    const items = parseMenuItems(extractedText);
-    
-    console.log('Successfully processed image, found', items.length, 'menu items');
+    const results = await Promise.all(
+      files.map(async (file) => {
+        try {
+          console.log('Processing image:', file.name, 'Size:', file.size, 'bytes');
+          const bytes = await file.arrayBuffer();
+          const buffer = Buffer.from(bytes);
+          
+          // Perform OCR on the image
+          const extractedText = await performOCR(buffer);
+          
+          // Parse the extracted text into menu items
+          const items = parseMenuItems(extractedText);
+          
+          console.log('Successfully processed image:', file.name, 'found', items.length, 'menu items');
+          return {
+            filename: file.name,
+            success: true,
+            items,
+            rawText: extractedText
+          };
+        } catch (error) {
+          console.error('Error processing image:', file.name, error);
+          return {
+            filename: file.name,
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to process image'
+          };
+        }
+      })
+    );
+
+    // Check if all images failed
+    if (results.every(result => !result.success)) {
+      return NextResponse.json(
+        { error: 'Failed to process all images', results },
+        { status: 500 }
+      );
+    }
+
+    // Return all results, including both successful and failed ones
     return NextResponse.json({
-      items,
-      rawText: extractedText
+      totalProcessed: files.length,
+      successfulProcessed: results.filter(r => r.success).length,
+      results
     });
 
   } catch (error) {
-    console.error('Error processing image:', error);
+    console.error('Error processing request:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to process image' },
+      { error: error instanceof Error ? error.message : 'Failed to process request' },
       { status: 500 }
     );
   }
