@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { OpenAIStream, StreamingTextResponse } from 'ai';
+import { Message } from 'ai';
 
 export const runtime = "edge";
 
@@ -15,6 +15,24 @@ export async function POST(req: Request) {
     messages: messages,
   });
 
-  const stream = OpenAIStream(response);
-  return new StreamingTextResponse(stream);
+  // Convert the response to a ReadableStream
+  const stream = new ReadableStream({
+    async start(controller) {
+      for await (const chunk of response) {
+        if (chunk.choices[0]?.delta?.content) {
+          controller.enqueue(chunk.choices[0].delta.content);
+        }
+      }
+      controller.close();
+    },
+  });
+
+  // Return the stream with the appropriate headers
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
 }
